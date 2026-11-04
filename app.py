@@ -20,11 +20,17 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-import lightgbm as lgb
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import roc_auc_score, roc_curve
+
+try:
+    import lightgbm as lgb
+    HAS_LGB = True
+except Exception:
+    HAS_LGB = False
+    from sklearn.ensemble import GradientBoostingClassifier
 
 # ─────────────────────────────────────────────
 # 1. PAGE CONFIGURATION
@@ -317,26 +323,28 @@ def train_model(n_records):
     auc_lr  = roc_auc_score(y_te, lr_prob)
 
     # 2. LightGBM (Challenger) — matching Approach_v2_new 3.ipynb
-    lgb_model = lgb.LGBMClassifier(
-        n_estimators=100,
-        learning_rate=0.05,
-        class_weight='balanced',
-        random_state=42,
-        verbose=-1
-    )
-    lgb_model.fit(X_tr, y_tr)
-    lgb_prob = lgb_model.predict_proba(X_te)[:, 1]
-    auc_lgb  = roc_auc_score(y_te, lgb_prob)
-
-    fpr_lr, tpr_lr, _ = roc_curve(y_te, lr_prob)
-    fpr_lgb, tpr_lgb, _ = roc_curve(y_te, lgb_prob)
-    
-    # Feature Importance (LightGBM split count)
-    feat_imp = pd.Series(lgb_model.feature_importances_, index=features).sort_values(ascending=False)
-
-    # IFRS 9 Expected Loss: EL = PD * EAD * LGD
-    # Predict Probability of Default (PD) using LightGBM
-    ml['pd_score'] = lgb_model.predict_proba(ml[features])[:, 1]
+    if HAS_LGB:
+        lgb_model = lgb.LGBMClassifier(
+            n_estimators=100,
+            learning_rate=0.05,
+            class_weight='balanced',
+            random_state=42,
+            verbose=-1
+        )
+        lgb_model.fit(X_tr, y_tr)
+        lgb_prob = lgb_model.predict_proba(X_te)[:, 1]
+        auc_lgb  = roc_auc_score(y_te, lgb_prob)
+        fpr_lgb, tpr_lgb, _ = roc_curve(y_te, lgb_prob)
+        feat_imp = pd.Series(lgb_model.feature_importances_, index=features).sort_values(ascending=False)
+        ml['pd_score'] = lgb_model.predict_proba(ml[features])[:, 1]
+    else:
+        gb_model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, random_state=42)
+        gb_model.fit(X_tr, y_tr)
+        lgb_prob = gb_model.predict_proba(X_te)[:, 1]
+        auc_lgb  = roc_auc_score(y_te, lgb_prob)
+        fpr_lgb, tpr_lgb, _ = roc_curve(y_te, lgb_prob)
+        feat_imp = pd.Series(gb_model.feature_importances_, index=features).sort_values(ascending=False)
+        ml['pd_score'] = gb_model.predict_proba(ml[features])[:, 1]
     ml['ead'] = ml['outstanding_balance']
     
     # Product-specific LGD mapping from notebook
