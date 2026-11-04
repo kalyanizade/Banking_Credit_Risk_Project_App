@@ -40,6 +40,27 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Cross-version compatibility helper for Streamlit chart & dataframe rendering
+def plot_chart(fig):
+    """Render Plotly chart with cross-version Streamlit compatibility."""
+    try:
+        st.plotly_chart(fig, width='stretch')
+    except (TypeError, ValueError):
+        try:
+            st.plotly_chart(fig, use_container_width=True)
+        except TypeError:
+            st.plotly_chart(fig)
+
+def show_dataframe(data):
+    """Render dataframe with cross-version Streamlit compatibility."""
+    try:
+        st.dataframe(data, width='stretch')
+    except (TypeError, ValueError):
+        try:
+            st.dataframe(data, use_container_width=True)
+        except TypeError:
+            st.dataframe(data)
+
 # ─────────────────────────────────────────────
 # 2. CUSTOM CSS — Polished BFSI Design
 # ─────────────────────────────────────────────
@@ -402,13 +423,14 @@ with tab1:
                                title='Origination Funnel',
                                color_discrete_sequence=['#4C72B0'])
         fig_funnel.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_funnel, use_container_width=True)
+        plot_chart(fig_funnel)
 
     with col_r:
         port_s = df.groupby('portfolio').agg(
             Applications=('application_id', 'count'),
             Approved=('approved', 'sum')
         ).assign(Approval_Rate=lambda x: (x['Approved'] / x['Applications'] * 100).round(1)).reset_index()
+        port_s['Approval_Rate'] = port_s['Approval_Rate'].fillna(0)
 
         fig_port = px.bar(port_s, x='portfolio', y='Approval_Rate',
                           title='Approval Rate by Portfolio (%)',
@@ -416,7 +438,7 @@ with tab1:
                           text='Approval_Rate')
         fig_port.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
         fig_port.update_layout(showlegend=False, margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_port, use_container_width=True)
+        plot_chart(fig_port)
 
     # Fast Histogram
     fig_fico = px.histogram(df, x='fico_score', nbins=40,
@@ -427,10 +449,10 @@ with tab1:
     fig_fico.add_vline(x=700, line_dash='dash', line_color='green',
                        annotation_text='Low Risk (700)', annotation_position="top right")
     fig_fico.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=360)
-    st.plotly_chart(fig_fico, use_container_width=True)
+    plot_chart(fig_fico)
 
     with st.expander("📋 View Raw Application Data"):
-        st.dataframe(df.head(100), use_container_width=True)
+        show_dataframe(df.head(100))
 
 # ═════════════════════════════════════════════
 # TAB 2: PERFORMANCE & DELINQUENCY
@@ -460,7 +482,7 @@ with tab2:
                          color_discrete_map={'green': '#55A868', 'red': '#C44E52'},
                          title='Delinquency Bucket Distribution')
         fig_bkt.update_layout(showlegend=False, margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_bkt, use_container_width=True)
+        plot_chart(fig_bkt)
 
     with col_r:
         risk_c = perf_df['risk_segment'].value_counts().reset_index()
@@ -474,12 +496,15 @@ with tab2:
                              'Low Risk': '#55A868'
                          })
         fig_pie.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        plot_chart(fig_pie)
 
-    # Sample max 1,000 points for instant responsive rendering
+    # Sample max 1,000 points with dedicated column for clean type safety
     scatter_sample = perf_df.sample(min(1000, len(perf_df)), random_state=42) if len(perf_df) > 0 else perf_df
+    scatter_sample = scatter_sample.copy()
+    scatter_sample['outstanding_balance_lakhs'] = (scatter_sample['outstanding_balance'] / 1e5).round(2)
+
     fig_scatter = px.scatter(scatter_sample, x='fico_score',
-                             y=scatter_sample['outstanding_balance'] / 1e5,
+                             y='outstanding_balance_lakhs',
                              color='risk_segment',
                              color_discrete_map={
                                  'High Risk': '#C44E52',
@@ -489,7 +514,7 @@ with tab2:
                              title=f'FICO Score vs Outstanding Balance (₹ Lakhs) [Sample: {len(scatter_sample):,} pts]',
                              opacity=0.6, height=400)
     fig_scatter.update_layout(yaxis_title='Outstanding Balance (₹ Lakhs)', margin=dict(l=20, r=20, t=40, b=20))
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    plot_chart(fig_scatter)
 
 # ═════════════════════════════════════════════
 # TAB 3: MACHINE LEARNING MODEL (LIGHTGBM)
@@ -528,7 +553,7 @@ with tab3:
             margin=dict(l=20, r=20, t=40, b=20),
             height=380
         )
-        st.plotly_chart(fig_roc, use_container_width=True)
+        plot_chart(fig_roc)
 
     with col_r:
         fi = results['feat_imp'].reset_index()
@@ -537,11 +562,11 @@ with tab3:
                         title='Feature Importance — LightGBM (Split Count)',
                         color='Importance', color_continuous_scale='Greens')
         fig_fi.update_layout(yaxis={'categoryorder': 'total ascending'}, margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_fi, use_container_width=True)
+        plot_chart(fig_fi)
 
     el_df = results['el_by_port'].reset_index()
     el_df.columns = ['Portfolio', 'Expected_Loss']
-    el_df['EL_Lakhs'] = (el_df['Expected_Loss'] / 1e5).round(1)
+    el_df['EL_Lakhs'] = (el_df['Expected_Loss'] / 1e5).round(1).fillna(0)
 
     fig_el = px.bar(el_df, x='Portfolio', y='EL_Lakhs',
                     title='IFRS 9 Expected Credit Loss by Portfolio (₹ Lakhs)',
@@ -549,7 +574,7 @@ with tab3:
                     text='EL_Lakhs')
     fig_el.update_traces(texttemplate='₹%{text}L', textposition='outside')
     fig_el.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
-    st.plotly_chart(fig_el, use_container_width=True)
+    plot_chart(fig_el)
 
     st.markdown("""
     <div class="insight-box">
@@ -593,6 +618,7 @@ with tab4:
             Total_Outstanding=('outstanding_balance', 'sum'),
             Total_Recovered=('amount_recovered', 'sum')
         ).assign(Recovery_Rate=lambda x: (x['Total_Recovered'] / x['Total_Outstanding'] * 100).round(1)).reset_index()
+        risk_rec['Recovery_Rate'] = risk_rec['Recovery_Rate'].fillna(0).replace([np.inf, -np.inf], 0)
 
         fig_rec = px.bar(risk_rec, x='risk_segment', y='Recovery_Rate',
                          title='Recovery Rate by Risk Segment (%)',
@@ -600,7 +626,7 @@ with tab4:
                          text='Recovery_Rate')
         fig_rec.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
         fig_rec.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
-        st.plotly_chart(fig_rec, use_container_width=True)
+        plot_chart(fig_rec)
 
     st.markdown("""
     <div class="insight-box">
