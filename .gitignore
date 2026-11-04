@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.matplotlib_cache/
+powershell.bat
+.env
+.venv/
+env/
+venv/
